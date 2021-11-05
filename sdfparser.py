@@ -1,4 +1,3 @@
-import enum
 import gzip
 import os
 import re
