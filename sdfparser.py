@@ -1,3 +1,4 @@
+import enum
 import gzip
 import os
 import re
@@ -53,13 +54,25 @@ def _openFile(path):
         return gzip.open(path, 'rt')
     else:
         return open(path, 'r')
-
-def _recordBlock(fp):
+	
+def _recordBlock(fp, numOfSkippedMol=0):
+	count = 0
+	allline = fp.readlines()
+	fidx = 0
+	if numOfSkippedMol > 0:
+		for idx, line in enumerate(allline):
+			if line.startswith('$$$$'):
+				count += 1
+				if count == numOfSkippedMol:
+					fidx = idx + 1 # In the below for loop, read just after '$$$$'
+					break
 	record = []
-	for line in fp.readlines():
+
+	for line in allline[fidx:]:
 		record.append(line)
 		if line.startswith('$$$$'):
-			yield record
+			count += 1
+			yield count, record
 			record.clear()
 
 def _parseOneBlock(molBlock: list):
@@ -83,14 +96,15 @@ def _parseOneBlock(molBlock: list):
 			rt[MBE.Atoms].append(_parseAtomBlock(text))
 		elif idx > 3 + rt[MBE.NumOfAtoms] and idx <= 3 + rt[MBE.NumOfAtoms] + rt[MBE.NumOfBonds]:
 			rt[MBE.Bonds].append(_parseBondBlock(text))
+		elif text.startswith('$$$$'):
+			break
 		elif idx > 3 + rt[MBE.NumOfAtoms] + rt[MBE.NumOfBonds]:
+			# The other "M" properties are discarded.
 			if flagMEND == False: 
 				if _RegexpMEnd.match(text):
 					flagMEND = True
 				continue
 			props.append(text)
-		elif text.startswith('$$$$'):
-			break
 		
 		rt[MBE.Properties] = _parsePropertyLists(props)
 
@@ -135,36 +149,64 @@ def _parseBondBlock(text: str) -> dict:
 	}
 	pass
 
-def SDFileParser(sdfile_path: str, maxNumOfMol = 10):
+def SDFileParser(sdfile_path: str, maxNumOfMol = 0, numOfSkippedMol = 0):
 	"""[Pure-Python implementation of Parser for SD file ]
 
 	Args:
 	    sdfile_path (str): [Filepaht of .sdf/.sdf.gz]
 	    maxNumOfMol (int, optional): [maximum limit number of molecules]. If 0 is specifed, all molecules are read.
+		numOfSkippedMol (int, optional): [skip reading N molecules from the head] If 0 is specifed,  any molecules are not skipped.
 
 	Returns:
 		list of molecule which consists of list/dict.
 	"""
 	rt = []
 	fp = _openFile(sdfile_path)
-	idx = 0
-	for mb in _recordBlock(fp):
-		idx += 1
+
+	count = 0
+	for idx, mb in _recordBlock(fp, numOfSkippedMol=numOfSkippedMol):
 		try:
 			r = _parseOneBlock(mb)
 			r[MBE.ExitCode] = 0
 		except ValueError:
 			print(f"Value Error in #{idx} block of molecule.", file=sys.stderr)
 			r[MBE.ExitCode] = 1
+		count += 1
 		r[MBE.OrderOfOccurrence] = idx
 		rt.append(r)
-		if maxNumOfMol != 0 and idx >= maxNumOfMol:
+		if maxNumOfMol != 0 and count == maxNumOfMol:
 			break
 	
 	return rt
 
 if __name__ == '__main__':
+
+	def callSDFileParser(args):
+		mols = SDFileParser(args.sdfile, 
+			maxNumOfMol = args.maxNumOfMol,
+			numOfSkippedMol= args.numOfSkippedMol)
+		print(json.dumps(mols, indent=2), file=args.destFile)
+
 	import json
-	molecules = SDFileParser("data/PubChem_compound_text_egfr_records.sdf", 0)
-	print(json.dumps(molecules, indent=4))
+	import argparse
+
+	parser = argparse.ArgumentParser()
+	subparsers = parser.add_subparsers()
+	lp = subparsers.add_parser('tojson', help='show contents as JSON format')
+	lp.add_argument('sdfile', action='store', help='a file path of ".sdf/.sdf.gz"')
+	lp.add_argument('--maxNumOfMol', metavar='integer', action='store', type=int, default=0, help='Maximum number of molecules for output data')
+	lp.add_argument('--numOfSkippedMol', metavar='integer', action='store', type=int, default=0, help='Number of molecules for skipping reading from the head record.')
+	lp.add_argument('--destFile', action='store', default=sys.stdout, type=argparse.FileType('w', encoding='utf-8'))
+
+	lp.set_defaults(func=callSDFileParser) 
+
+	args = parser.parse_args()
+	has_func = hasattr(args, 'func')
+	if not has_func:
+		parser.error('too few arguments')
+		sys.exit(1)
+
+	args.func(args)
+
+
 
