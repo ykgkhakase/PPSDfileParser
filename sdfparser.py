@@ -58,6 +58,7 @@ def _openFile(path):
 def _recordBlock(fp, numOfSkippedMol=0):
 	count = 0
 	allline = fp.readlines()
+	fp.close()
 	fidx = 0
 	if numOfSkippedMol > 0:
 		for idx, line in enumerate(allline):
