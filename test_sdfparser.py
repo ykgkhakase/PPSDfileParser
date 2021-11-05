@@ -16,6 +16,8 @@ class TestSDfileParser(unittest.TestCase):
 		file1 = 'data/PubChem_compound_text_egfr_records.sdf'
 		mols1 = sdf.SDFileParser(file1, maxNumOfMol=10, numOfSkippedMol=5)
 		self.assertEqual(len(mols1), 10)
+		self.assertEqual(mols1[0]['OrderOfOccurrence'], 6)
+		self.assertEqual(mols1[-1]['OrderOfOccurrence'], 15)
 
 
 if __name__ == "__main__":
